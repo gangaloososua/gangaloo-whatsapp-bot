@@ -4,55 +4,92 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-// ─── CONFIG (set these in Render.com environment variables) ───────────────────
 const {
-  VERIFY_TOKEN,          // any secret string you choose, e.g. "gangaloo2026"
-  WHATSAPP_TOKEN,        // your Meta permanent access token
-  PHONE_NUMBER_ID,       // from Meta developer dashboard
-  ANTHROPIC_API_KEY,     // your Claude API key
+  VERIFY_TOKEN,
+  WHATSAPP_TOKEN,
+  PHONE_NUMBER_ID,
+  ANTHROPIC_API_KEY,
 } = process.env;
 
-// ─── STORE INFO ───────────────────────────────────────────────────────────────
 const STORE_INFO = {
   nombre: "GangaLoo",
+  tienda: "https://gangaloo.netlify.app/store",
+  cotizador: "https://gangaloo.netlify.app/cotizador-gangaloo",
+  descripcion: "Tienda especializada en cabello humano, pelucas y accesorios de belleza. Tambien hacemos compras por encargo desde Shein, Temu, Amazon y AliExpress.",
   sucursales: [
     {
       nombre: "GangaLoo Montellano",
-      direccion: "Montellano, Espaillat, República Dominicana",
-      horario: "Lun–Sáb: 8:00am – 6:30pm | Dom: cerrado",
+      direccion: "Montellano, Espaillat, Republica Dominicana",
+      horario: "Lun-Sab: 8:00am - 6:30pm | Dom: cerrado",
     },
     {
-      nombre: "GangaLoo Sosúa / Maranatá",
-      direccion: "Sosúa / Maranatá, Puerto Plata, Rep. Dom.",
-      horario: "Lun–Sáb: 8:00am – 7:00pm | Dom: 9:00am – 1:00pm",
+      nombre: "GangaLoo Sosua / Maranata",
+      direccion: "Sosua / Maranata, Puerto Plata, Rep. Dom.",
+      horario: "Lun-Sab: 8:00am - 7:00pm | Dom: 9:00am - 1:00pm",
     },
   ],
-  pagos: ["Efectivo", "Transferencia bancaria (Banreservas, BHD, Popular)", "Tarjeta de crédito/débito", "PayPal"],
-  delivery: "Realizamos envíos a toda la República Dominicana. Pedidos locales: 24–48h. Interior del país: 3–5 días laborables.",
-  catalogo: "Visita gangaloo.netlify.app para ver el catálogo completo con precios actualizados.",
-  cotizacion: "Pídele al cliente el producto y la cantidad. Confirma que vas a buscar el precio.",
+  categorias_tienda: [
+    "Cabellos 9A",
+    "Cabellos 12A",
+    "Cabellos 8A",
+    "Pelucas Lacio",
+    "Pelucas Ondulado",
+    "Pelucas Rizado",
+    "Pelucas Sinteticos",
+    "Frontales",
+    "Accesorios para Pelucas",
+    "Accesorios de Belleza",
+    "Salud y Bienestar",
+  ],
+  servicio_encargo: {
+    descripcion: "Compramos por ti desde Shein, Temu, Amazon y AliExpress. Tu nos mandas el carrito y nosotros hacemos el pedido.",
+    plataformas: ["Shein", "Temu", "Amazon", "AliExpress"],
+    cotizador: "El cliente puede calcular el costo total de su pedido en: https://gangaloo.netlify.app/cotizador-gangaloo — solo ingresa el precio del carrito y el cotizador muestra lo que tiene que pagar.",
+    opciones_pago_encargo: [
+      "100% upfront (pago completo por adelantado)",
+      "50% upfront + 50% al recibir el pedido"
+    ],
+    como_ordenar: "El cliente nos manda el link o screenshot de su carrito por WhatsApp. Nosotros calculamos el costo y confirmamos el pedido.",
+    como_pagar: [
+      "Efectivo en persona en nuestra sucursal de Maranata (Sosua)",
+      "Transferencia bancaria (Banreservas, BHD, Popular)"
+    ],
+  },
+  pagos_tienda: ["Efectivo", "Transferencia bancaria (Banreservas, BHD, Popular)", "Tarjeta de credito/debito", "PayPal"],
+  delivery: "Enviamos a toda la Republica Dominicana. Pedidos locales: 24-48h. Interior del pais: 3-5 dias laborables.",
   redes: "Facebook: GangaLoo | Instagram: @GangaLoo | TikTok: @GangaLoo | YouTube: GangaLoo",
 };
 
-const SYSTEM_PROMPT = `Eres GangaBot, el asistente de WhatsApp de GangaLoo — una tienda en la República Dominicana con sucursales en Montellano y Sosúa/Maranatá.
+const SYSTEM_PROMPT = `Eres GangaBot, el asistente de WhatsApp de GangaLoo - una tienda especializada en cabello humano, pelucas, accesorios de belleza, y servicio de compras por encargo desde Shein, Temu, Amazon y AliExpress. Tenemos sucursales en Montellano y Sosua/Maranata, Republica Dominicana.
 
-Personalidad: casual, amigable, dominicano. Habla natural. Usa expresiones como "¡Claro que sí!", "¡Con gusto!", "¡No te preocupes!". Emojis con moderación. Responde en español siempre. Máximo 4–5 líneas. Directo y útil.
+Personalidad: casual, amigable, dominicana. Habla como una experta. Usa expresiones como "Claro que si!", "Con gusto!", "Tenemos justo lo que buscas!". Emojis moderados (1-2 por mensaje). Responde SIEMPRE en espanol. Maximo 6 lineas. Directa y util.
 
-INFORMACIÓN DE LA TIENDA:
+INFORMACION COMPLETA:
 ${JSON.stringify(STORE_INFO, null, 2)}
 
-REGLAS:
-- Horarios/ubicación → da info de ambas sucursales.
-- Catálogo/precios → dirige a gangaloo.netlify.app.
-- Cotización → pide producto y cantidad: "¡Dime qué necesitas y te doy el precio al tiro!"
-- Pagos → lista todos los métodos.
-- Envíos → explica la política de forma simple.
-- Redes sociales → da los handles.
-- Si no puedes resolver algo → "Te conecto con un agente ahora mismo 👌"
-- Nunca inventes precios. Termina siempre con una pregunta o invitación a seguir.`;
+REGLAS POR TEMA:
 
-// ─── IN-MEMORY CONVERSATION HISTORY ──────────────────────────────────────────
-// Stores last 10 messages per phone number to maintain context
+PRODUCTOS DE LA TIENDA (cabello, pelucas):
+- Menciona las categorias relevantes y SIEMPRE manda: https://gangaloo.netlify.app/store
+- Grados: 8A = buena calidad, 9A = mejor calidad, 12A = la mejor calidad y mas duradera.
+- Pelucas: Lacio, Ondulado, Rizado y Sinteticos.
+
+PEDIDOS POR ENCARGO (Shein, Temu, Amazon, AliExpress):
+- Cuando alguien mencione Shein, Temu, Amazon, AliExpress, o quiera pedir algo de internet → explicar el servicio.
+- SIEMPRE mandar el cotizador: https://gangaloo.netlify.app/cotizador-gangaloo
+- Explicar que en el cotizador solo ingresa el precio del carrito y ve cuanto paga.
+- Dos opciones de pago: 100% adelantado O 50% ahora + 50% al recibir.
+- Para ordenar: el cliente nos manda el link o screenshot del carrito por WhatsApp.
+- Pago del encargo: efectivo en Maranata (Sosua) O transferencia bancaria.
+- Flujo ideal: "1) Calcula tu costo en el cotizador 2) Mandanos tu carrito por aqui 3) Confirmas el pago y hacemos el pedido!"
+
+HORARIOS: da info de ambas sucursales.
+PAGOS TIENDA: lista todos los metodos.
+ENVIOS: explica brevemente.
+PRECIOS: nunca inventes precios especificos.
+SIN RESPUESTA: "Te conecto con un agente ahora mismo"
+SIEMPRE termina con una pregunta o invitacion a continuar.`;
+
 const conversations = new Map();
 
 function getHistory(phone) {
@@ -63,11 +100,9 @@ function getHistory(phone) {
 function addToHistory(phone, role, content) {
   const history = getHistory(phone);
   history.push({ role, content });
-  // Keep only last 10 messages to avoid token overflow
   if (history.length > 10) history.splice(0, history.length - 10);
 }
 
-// ─── CLAUDE API ───────────────────────────────────────────────────────────────
 async function askClaude(phone, userMessage) {
   addToHistory(phone, "user", userMessage);
   const history = getHistory(phone);
@@ -94,7 +129,6 @@ async function askClaude(phone, userMessage) {
   return reply;
 }
 
-// ─── WHATSAPP API ─────────────────────────────────────────────────────────────
 async function sendWhatsAppMessage(to, message) {
   await axios.post(
     `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`,
@@ -113,64 +147,54 @@ async function sendWhatsAppMessage(to, message) {
   );
 }
 
-// ─── WEBHOOK VERIFICATION (Meta requires this) ────────────────────────────────
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("✅ Webhook verified by Meta");
+    console.log("Webhook verified by Meta");
     res.status(200).send(challenge);
   } else {
-    console.error("❌ Webhook verification failed");
     res.sendStatus(403);
   }
 });
 
-// ─── INCOMING MESSAGES ────────────────────────────────────────────────────────
 app.post("/webhook", async (req, res) => {
-  // Always acknowledge immediately so Meta doesn't retry
   res.sendStatus(200);
 
   try {
     const body = req.body;
 
-    // Validate it's a WhatsApp message
     if (
       body.object !== "whatsapp_business_account" ||
       !body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]
     ) return;
 
     const message = body.entry[0].changes[0].value.messages[0];
-    const from = message.from; // sender's phone number
+    const from = message.from;
 
-    // Only handle text messages for now
     if (message.type !== "text") {
-      await sendWhatsAppMessage(from, "¡Hola! 👋 Por ahora solo puedo leer mensajes de texto. ¿En qué te puedo ayudar?");
+      await sendWhatsAppMessage(from, "Hola! Solo puedo leer mensajes de texto por ahora. En que te puedo ayudar?");
       return;
     }
 
     const userText = message.text.body;
-    console.log(`📨 Message from ${from}: ${userText}`);
+    console.log(`Message from ${from}: ${userText}`);
 
-    // Get Claude's reply
     const reply = await askClaude(from, userText);
-    console.log(`🤖 GangaBot reply: ${reply}`);
+    console.log(`GangaBot reply: ${reply}`);
 
-    // Send back to WhatsApp
     await sendWhatsAppMessage(from, reply);
 
   } catch (error) {
-    console.error("❌ Error processing message:", error.response?.data || error.message);
+    console.error("Error:", error.response?.data || error.message);
   }
 });
 
-// ─── HEALTH CHECK ─────────────────────────────────────────────────────────────
 app.get("/", (req, res) => {
-  res.json({ status: "GangaBot is running! 🚀", store: "GangaLoo" });
+  res.json({ status: "GangaBot is running!", store: "GangaLoo" });
 });
 
-// ─── START SERVER ─────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 GangaBot running on port ${PORT}`));
+app.listen(PORT, () => console.log(`GangaBot running on port ${PORT}`));
