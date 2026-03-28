@@ -11,76 +11,178 @@ const {
   ANTHROPIC_API_KEY,
 } = process.env;
 
+// Supabase config
+const SUPABASE_URL = "https://xnbkwczolkinurohloxj.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhuYmt3Y3pvbGtpbnVyb2hsb3hqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4MTA5ODEsImV4cCI6MjA4ODM4Njk4MX0.qkSgk5BUccKF-bmla5nOFgI4HIPox40X6jYDT4Zcnes";
+
+// Fetch live inventory from Supabase
+async function getInventory() {
+  try {
+    const response = await axios.get(
+      `${SUPABASE_URL}/rest/v1/inventory_data?select=warehouses,categories,products&limit=1`,
+      {
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const row = response.data[0];
+    if (!row) return null;
+
+    // Parse JSON fields if they are strings
+    const warehouses = typeof row.warehouses === "string" ? JSON.parse(row.warehouses) : row.warehouses;
+    const categories = typeof row.categories === "string" ? JSON.parse(row.categories) : row.categories;
+    const products = typeof row.products === "string" ? JSON.parse(row.products) : row.products;
+
+    return { warehouses, categories, products };
+  } catch (err) {
+    console.error("Supabase fetch error:", err.message);
+    return null;
+  }
+}
+
+// Build a readable inventory summary for Claude
+function buildInventorySummary(data) {
+  if (!data) return "Inventario no disponible en este momento.";
+
+  const { warehouses, categories, products } = data;
+
+  // Build warehouse name map
+  const warehouseMap = {};
+  if (Array.isArray(warehouses)) {
+    warehouses.forEach(w => { warehouseMap[w.id] = w.name; });
+  }
+
+  // Build category name map
+  const categoryMap = {};
+  if (Array.isArray(categories)) {
+    categories.forEach(c => { categoryMap[c.id] = c.name; });
+  }
+
+  // Group products by warehouse and category
+  const summary = {};
+  if (Array.isArray(products)) {
+    products.forEach(p => {
+      const whName = warehouseMap[p.warehouseId] || warehouseMap[p.warehouse_id] || p.warehouseId || "Almacen desconocido";
+      const catName = categoryMap[p.categoryId] || categoryMap[p.category_id] || p.categoryId || "Sin categoria";
+      const key = `${whName} - ${catName}`;
+      if (!summary[key]) summary[key] = [];
+      const stock = p.stock !== undefined ? p.stock : (p.quantity !== undefined ? p.quantity : "?");
+      if (stock > 0 || stock === "?") {
+        summary[key].push(`${p.name || p.sku} (stock: ${stock})`);
+      }
+    });
+  }
+
+  if (Object.keys(summary).length === 0) {
+    return "No hay productos con stock disponible en este momento.";
+  }
+
+  let result = "INVENTARIO ACTUAL:\n";
+  for (const [location, items] of Object.entries(summary)) {
+    result += `\n📦 ${location}:\n`;
+    items.slice(0, 10).forEach(item => { result += `  - ${item}\n`; });
+    if (items.length > 10) result += `  ... y ${items.length - 10} productos mas\n`;
+  }
+  return result;
+}
+
 const STORE_INFO = {
   nombre: "GangaLoo",
   tienda: "https://gangaloo.netlify.app/store",
   cotizador: "https://gangaloo.netlify.app/cotizador-gangaloo",
-  descripcion: "Tienda especializada en cabello humano, pelucas, accesorios de belleza, y servicio de compras por encargo desde Shein, Temu, Amazon y AliExpress.",
   sucursales: [
     {
       nombre: "GangaLoo Montellano",
-      direccion: "Montellano, Espaillat, Republica Dominicana",
-      horario: "Lun-Sab: 8:00am - 6:30pm | Dom: cerrado",
+      direccion: "Pancho Mateo, Montellano, Republica Dominicana",
+      horario: "Lunes a Domingo: 9:00 AM - 7:00 PM",
+      telefono: "+1 (829) 841-7980",
+      maps: "https://www.google.com/maps?q=19.7299357,-70.5980177",
     },
     {
-      nombre: "GangaLoo Sosua / Maranata",
-      direccion: "Sosua / Maranata, Puerto Plata, Rep. Dom.",
-      horario: "Lun-Sab: 8:00am - 7:00pm | Dom: 9:00am - 1:00pm",
+      nombre: "GangaLoo Maranatha (Sosua)",
+      direccion: "Calle Bella Vista, Maranatha, Republica Dominicana",
+      horario_semana: "Lunes a Viernes: 10:00 AM - 2:00 PM y 4:00 PM - 7:00 PM",
+      horario_sabado: "Sabado: 2:00 PM - 6:00 PM",
+      horario_domingo: "Domingo: Cerrado",
+      telefono: "+1 (829) 286-7868",
+      maps: "https://www.google.com/maps?q=19.7411172,-70.5228458",
     },
   ],
-  categorias_tienda: [
-    "Cabellos 9A", "Cabellos 12A", "Cabellos 8A",
-    "Pelucas Lacio", "Pelucas Ondulado", "Pelucas Rizado", "Pelucas Sinteticos",
-    "Frontales", "Accesorios para Pelucas", "Accesorios de Belleza", "Salud y Bienestar",
-  ],
-  servicio_encargo: {
-    plataformas: ["Shein", "Temu", "Amazon", "AliExpress"],
-    cotizador: "https://gangaloo.netlify.app/cotizador-gangaloo",
-    opciones_pago: ["100% adelantado", "50% ahora + 50% al recibir"],
-    como_ordenar: "El cliente manda el link o screenshot del carrito por WhatsApp.",
-    como_pagar: ["Efectivo en Maranata (Sosua)", "Transferencia bancaria (Banreservas, BHD, Popular)"],
+  extensiones_cabello: {
+    calidades: ["8A - buena calidad", "9A - mejor calidad", "12A - calidad premium, la mejor"],
+    nota: "Mayor numero = mejor calidad y mas duradera",
   },
-  pagos_tienda: ["Efectivo", "Transferencia bancaria (Banreservas, BHD, Popular)", "Tarjeta de credito/debito", "PayPal"],
-  delivery: "Enviamos a toda la Republica Dominicana. Pedidos locales: 24-48h. Interior del pais: 3-5 dias laborables.",
-  redes: "Facebook: GangaLoo | Instagram: @GangaLoo | TikTok: @GangaLoo | YouTube: GangaLoo",
+  pelucas: {
+    estilos: ["Lacio", "Ondulado", "Rizo", "Rizo Suave"],
+    tipos: ["Cabello humano", "Sintetico"],
+    extras: "Multiples colores, diferentes largos, Bob corto disponible",
+  },
+  servicio_encargo: {
+    plataformas: ["Shein", "Temu", "Amazon", "AliExpress", "eBay"],
+    opciones_pago: ["100% adelantado", "50% ahora + 50% al recibir (+20% cargo financiero)"],
+    como_pagar: ["Efectivo en Maranatha", "Transferencia bancaria (Banreservas, BHD, Popular)"],
+  },
+  pagos_tienda: ["Efectivo", "Transferencia bancaria", "Tarjeta credito/debito", "PayPal"],
+  delivery: "Toda la RD. Local: 24-48h. Interior: 3-5 dias laborables.",
+  ganar_dinero: ["Cashback hasta 15%", "Mayorista -20%", "Vendedor 5-15% comision", "Distribuidor territorio exclusivo", "Club GangaLoo RD$999/mes = 15-25% descuento"],
 };
 
-const HANDOFF_FOOTER = "\n\n_¿Prefieres hablar con una persona? Escribe *agente* para conectarte con Bernhard Antony Perkins_ 👤";
+const HANDOFF_FOOTER = "\n\n_Prefieres hablar con una persona? Escribe *agente* para conectarte con Bernhard Antony Perkins_ 👤";
 
-const SYSTEM_PROMPT = `Eres GangaBot, el asistente de WhatsApp de GangaLoo - una tienda especializada en cabello humano, pelucas, accesorios de belleza, y servicio de compras por encargo desde Shein, Temu, Amazon y AliExpress. Sucursales en Montellano y Sosua/Maranata, Republica Dominicana.
+function buildSystemPrompt(inventorySummary) {
+  return `Eres GangaBot, experta en cabello y asistente de WhatsApp de GangaLoo - tienda en Republica Dominicana especializada en extensiones de cabello humano, pelucas y accesorios de belleza.
 
-Personalidad: casual, amigable, dominicana. Habla como una experta. Usa expresiones como "Claro que si!", "Con gusto!", "Tenemos justo lo que buscas!". Emojis moderados (1-2 por mensaje). Responde SIEMPRE en espanol. Maximo 6 lineas. Directa y util.
+Personalidad: casual, amigable, dominicana, experta en cabello. Usa "Claro que si!", "Con gusto!", "Tenemos justo lo que buscas!". Emojis moderados (1-2). Responde SIEMPRE en espanol. Maximo 8 lineas. Directa y util.
 
-INFORMACION COMPLETA:
+INFORMACION DE LA TIENDA:
 ${JSON.stringify(STORE_INFO, null, 2)}
 
-REGLAS POR TEMA:
+${inventorySummary}
 
-PRODUCTOS DE LA TIENDA (cabello, pelucas):
-- Menciona categorias relevantes y SIEMPRE manda: https://gangaloo.netlify.app/store
-- Grados: 8A = buena calidad, 9A = mejor, 12A = la mejor y mas duradera.
-- Pelucas: Lacio, Ondulado, Rizado y Sinteticos.
+REGLAS:
 
-PEDIDOS POR ENCARGO (Shein, Temu, Amazon, AliExpress):
-- SIEMPRE manda el cotizador: https://gangaloo.netlify.app/cotizador-gangaloo
-- Solo ingresa el precio del carrito y ve cuanto paga.
-- Opciones: 100% adelantado O 50% ahora + 50% al recibir.
-- Para ordenar: cliente manda link o screenshot del carrito por WhatsApp.
-- Pago: efectivo en Maranata (Sosua) O transferencia bancaria.
-- Flujo: "1) Calcula en el cotizador 2) Mandanos tu carrito 3) Confirma el pago y hacemos el pedido!"
+INVENTARIO EN VIVO:
+- Usa el inventario de arriba para responder preguntas sobre disponibilidad.
+- Si un producto tiene stock > 0 → esta disponible.
+- Si no aparece en el inventario → probablemente no hay stock, sugiere visitar la tienda online o preguntar a un agente.
+- SIEMPRE menciona en cual almacen (Montellano o Maranatha) esta disponible.
+- SIEMPRE recuerda al cliente cambiar entre almacenes en https://gangaloo.netlify.app/store para ver disponibilidad completa.
 
-HORARIOS: da info de ambas sucursales.
-PAGOS TIENDA: lista todos los metodos.
-ENVIOS: explica brevemente.
-PRECIOS: nunca inventes precios especificos.
+EXTENSIONES: 8A=buena, 9A=mejor, 12A=premium. Mayor numero = mejor calidad.
+PELUCAS: Lacio, Ondulado, Rizo, Rizo Suave. Humano y sintetico. Multiples colores. Bob corto disponible.
+UBICACION: dar direccion, horario, telefono y link de Maps de la sucursal que pregunten.
+ENCARGOS (Shein/Temu/Amazon/AliExpress): mandar https://gangaloo.netlify.app/cotizador-gangaloo
+PAGOS: listar todos los metodos.
+ENVIOS: explicar brevemente.
+PRECIOS: NUNCA inventes. Mandar a tienda online.
 SIN RESPUESTA: "Te conecto con un agente ahora mismo"
-SIEMPRE termina con una pregunta o invitacion a continuar.
+SIEMPRE termina con pregunta o invitacion.
+NO agregues pie de mensaje al final.`;
+}
 
-IMPORTANTE: No agregues ningun pie de mensaje al final de tu respuesta. Eso se maneja por separado.`;
-
-// Tracks which conversations have been handed off to a human
 const handedOffConversations = new Set();
 const conversations = new Map();
+
+// Cache inventory for 5 minutes to avoid too many Supabase calls
+let inventoryCache = null;
+let inventoryCacheTime = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getCachedInventory() {
+  const now = Date.now();
+  if (inventoryCache && (now - inventoryCacheTime) < CACHE_TTL) {
+    return inventoryCache;
+  }
+  const data = await getInventory();
+  const summary = buildInventorySummary(data);
+  inventoryCache = summary;
+  inventoryCacheTime = now;
+  return summary;
+}
 
 function getHistory(phone) {
   if (!conversations.has(phone)) conversations.set(phone, []);
@@ -96,13 +198,15 @@ function addToHistory(phone, role, content) {
 async function askClaude(phone, userMessage) {
   addToHistory(phone, "user", userMessage);
   const history = getHistory(phone);
+  const inventorySummary = await getCachedInventory();
+  const systemPrompt = buildSystemPrompt(inventorySummary);
 
   const response = await axios.post(
     "https://api.anthropic.com/v1/messages",
     {
       model: "claude-sonnet-4-20250514",
       max_tokens: 500,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: history,
     },
     {
@@ -141,9 +245,8 @@ app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
-
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("Webhook verified by Meta");
+    console.log("Webhook verified");
     res.status(200).send(challenge);
   } else {
     res.sendStatus(403);
@@ -152,10 +255,8 @@ app.get("/webhook", (req, res) => {
 
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
-
   try {
     const body = req.body;
-
     if (
       body.object !== "whatsapp_business_account" ||
       !body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]
@@ -172,46 +273,38 @@ app.post("/webhook", async (req, res) => {
     const userText = message.text.body.trim();
     console.log(`Message from ${from}: ${userText}`);
 
-    // Check if client wants a human agent
     const wantsAgent = /\bagente\b/i.test(userText) ||
       /hablar con (una )?persona/i.test(userText) ||
       /persona real/i.test(userText) ||
       /humano/i.test(userText);
 
     if (wantsAgent) {
-      // Mark this conversation as handed off
       handedOffConversations.add(from);
-      const handoffMsg = "Claro que si! Te estoy conectando con *Bernhard Antony Perkins* ahora mismo. El te atendera en breve. Gracias por tu paciencia! 🙏";
-      await sendWhatsAppMessage(from, handoffMsg);
-      console.log(`Conversation ${from} handed off to human agent`);
+      await sendWhatsAppMessage(from, "Claro que si! Te estoy conectando con *Bernhard Antony Perkins* ahora mismo. El te atendera en breve. Gracias por tu paciencia! 🙏");
+      console.log(`Conversation ${from} handed off to human`);
       return;
     }
 
-    // If conversation is handed off, bot stays silent
     if (handedOffConversations.has(from)) {
-      console.log(`Conversation ${from} is with human agent - bot staying silent`);
+      console.log(`Conversation ${from} is with human - bot silent`);
       return;
     }
 
-    // Bot handles the message
     const reply = await askClaude(from, userText);
-    const replyWithFooter = reply + HANDOFF_FOOTER;
-    console.log(`GangaBot reply to ${from}: ${reply}`);
-
-    await sendWhatsAppMessage(from, replyWithFooter);
+    await sendWhatsAppMessage(from, reply + HANDOFF_FOOTER);
+    console.log(`GangaBot replied to ${from}`);
 
   } catch (error) {
     console.error("Error:", error.response?.data || error.message);
   }
 });
 
-// Endpoint to reactivate bot for a conversation (call this after you finish with the client)
-// Example: POST https://gangaloo-whatsapp-bot.onrender.com/reactivate with body { "phone": "18091234567" }
 app.post("/reactivate", (req, res) => {
   const { phone } = req.body;
-  if (!phone) return res.status(400).json({ error: "Phone number required" });
+  if (!phone) return res.status(400).json({ error: "Phone required" });
   handedOffConversations.delete(phone);
-  conversations.delete(phone); // also clear chat history so bot starts fresh
+  conversations.delete(phone);
+  inventoryCache = null; // also refresh inventory
   console.log(`Bot reactivated for ${phone}`);
   res.json({ success: true, message: `Bot reactivated for ${phone}` });
 });
