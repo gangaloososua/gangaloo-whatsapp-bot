@@ -124,9 +124,9 @@ const STORE_INFO = {
   servicio_encargo: {
     plataformas: ["Shein", "Temu", "Amazon", "AliExpress", "eBay"],
     opciones_pago: ["100% adelantado", "50% ahora + 50% al recibir (+20% cargo financiero)"],
-    como_pagar: ["Efectivo en Maranatha", "Transferencia bancaria (Banreservas, BHD, Popular)"],
+    como_pagar: ["Efectivo en persona en Maranatha (Sosua)", "Transferencia bancaria: Banreservas o Popular (solo online)", "PayPal: anthonybperkins@hotmail.com (cargo adicional del 6%)"],
   },
-  pagos_tienda: ["Efectivo", "Transferencia bancaria", "Tarjeta credito/debito", "PayPal"],
+  pagos_tienda: ["Efectivo en tienda", "Transferencia bancaria: Banreservas o Popular (solo online)", "PayPal: anthonybperkins@hotmail.com (cargo adicional del 6%)"],
   delivery: "Toda la RD. Local: 24-48h. Interior: 3-5 dias laborables.",
   ganar_dinero: ["Cashback hasta 15%", "Mayorista -20%", "Vendedor 5-15% comision", "Distribuidor territorio exclusivo", "Club GangaLoo RD$999/mes = 15-25% descuento"],
 };
@@ -156,7 +156,7 @@ EXTENSIONES: 8A=buena, 9A=mejor, 12A=premium. Mayor numero = mejor calidad.
 PELUCAS: Lacio, Ondulado, Rizo, Rizo Suave. Humano y sintetico. Multiples colores. Bob corto disponible.
 UBICACION: dar direccion, horario, telefono y link de Maps de la sucursal que pregunten.
 ENCARGOS (Shein/Temu/Amazon/AliExpress): mandar https://gangaloo.netlify.app/cotizador-gangaloo
-PAGOS: listar todos los metodos.
+PAGOS: Efectivo en tienda. Transferencia bancaria SOLO por Banreservas o Popular (online). PayPal a anthonybperkins@hotmail.com con cargo del 6% adicional. Mencionar siempre el cargo del PayPal y la cuenta.
 ENVIOS: explicar brevemente.
 PRECIOS: NUNCA inventes. Mandar a tienda online.
 SIN RESPUESTA: "Te conecto con un agente ahora mismo"
